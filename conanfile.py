@@ -7,7 +7,7 @@ import os
 required_conan_version = ">=1.50.0"
 
 
-class bxConan(ConanFile):
+class bimgConan(ConanFile):
     name = "bimg"
     license = "BSD-2-Clause"
     homepage = "https://github.com/bkaradzic/bimg"
@@ -15,8 +15,7 @@ class bxConan(ConanFile):
     description = "Cross-platform, graphics API agnostic, \"Bring Your Own Engine/Framework\" style rendering library."
     topics = ("lib-static", "C++", "C++14", "rendering", "utility")
     settings = "os", "compiler", "arch", "build_type"
-    options = {"shared": [True, False]}
-    default_options = {"shared": False}
+
     requires = "bx/[>=1.18.0]"
 
     invalidPackageExceptionText = "Less lib files found for copy than expected. Aborting."
@@ -38,19 +37,12 @@ class bxConan(ConanFile):
 
     def configure(self):
         if self.settings.os == "Windows":
-            if self.options.shared:
-                self.libExt = ["*.dll"]
-            else:
-                self.libExt = ["*.lib"]
-            self.libExt.extend(["*.pdb"])
-            self.packageLibExt = ""
+            self.libExt = ["*.lib", "*.pdb"]
+            self.packageLibPrefix = ""
             self.binFolder = "windows"
         elif self.settings.os == "Linux":
-            if self.options.shared:
-                self.libExt = ["*.so"]
-            else:
-                self.libExt = ["*.a"]
-            self.packageLibExt = ".a"
+            self.libExt = ["*.a"]
+            self.packageLibPrefix = "lib"
             self.binFolder = "linux"
         self.toolsFolder = cwd=os.path.sep.join([".", "tools", "bin", self.binFolder])
 
@@ -101,7 +93,7 @@ class bxConan(ConanFile):
             projFolder = f"gmake-{self.gmakeOsToProj[str(self.settings.os)]}"
             if self.osToUseArchConfigSuffix[str(self.settings.os)]:
                 projFolder += self.gmakeArchToGenieSuffix[str(self.settings.arch)]
-            projPath = os.path.sep.join([".", self.bxFolder, ".build", "projects", projFolder])
+            projPath = os.path.sep.join([".", self.bimgFolder, ".build", "projects", projFolder])
 
             autotools = AutoToolsBuildEnvironment(self)
             with tools.environment_append(autotools.vars):
@@ -124,18 +116,18 @@ class bxConan(ConanFile):
         if len(self.libExt) > 1:
             for ind in range(1, len(self.libExt)):
                 self.copy(self.libExt[ind], dst="lib", src=f"{self.bimgFolder}/.build/", keep_path=False)
+        # Rename to strip Debug/Release suffix from libs
         for bimgFile in Path(f"{self.package_folder}/lib").glob("*bimg*"):
-            fName = bimgFile.name.split("_")
             fExtra = ""
             if bimgFile.name.find("encode") >= 0:
                 fExtra = "_encode"
             elif bimgFile.name.find("decode") >= 0:
                 fExtra = "_decode"
-            tools.rename(f"{self.package_folder}/lib/{bimgFile.name}", f"{self.package_folder}/lib/bimg{fExtra}{bimgFile.suffix}")
+            tools.rename(f"{self.package_folder}/lib/{bimgFile.name}", f"{self.package_folder}/lib/{self.packageLibPrefix}bimg{fExtra}{bimgFile.suffix}")
         tools.remove_files_by_mask(f"{self.package_folder}/lib", "*bx*")
             
 
     def package_info(self):
         self.cpp_info.includedirs = ["include"]
-        self.cpp_info.libs = [f"bimg{self.packageLibExt}", f"bimg_decode{self.packageLibExt}", f"bimg_encode{self.packageLibExt}"]
+        self.cpp_info.libs = ["bimg_decode", "bimg_encode", "bimg"] # encode and decode depend on bimg, so they have to go first
 
