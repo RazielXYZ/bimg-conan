@@ -1,6 +1,8 @@
-from enum import auto
-from importlib.metadata import requires
 from conans import ConanFile, tools, MSBuild, AutoToolsBuildEnvironment
+from conan.tools.microsoft import is_msvc
+from conan.tools.build import check_min_cppstd
+from conan.tools.scm import Version
+from conan.errors import ConanInvalidConfiguration
 from pathlib import Path
 import os
 
@@ -16,7 +18,7 @@ class bimgConan(ConanFile):
     topics = ("lib-static", "C++", "C++14", "rendering", "utility")
     settings = "os", "compiler", "arch", "build_type"
 
-    requires = "bx/[>=1.18.0]"
+    requires = "bx/[>=1.18.0]@bx/rolling"
 
     invalidPackageExceptionText = "Less lib files found for copy than expected. Aborting."
     expectedNumLibs = 3
@@ -24,7 +26,8 @@ class bimgConan(ConanFile):
     bimgFolder = "bimg"
     
 
-    vsVerToGenie = {"17": "2022", "16": "2019", "15": "2017"}
+    vsVerToGenie = {"17": "2022", "16": "2019", "15": "2017",
+                    "193": "2022", "192": "2019", "191": "2017"}
 
     gccOsToGenie = {"Windows": "--gcc=mingw-gcc", "Linux": "--gcc=linux-gcc", "Macos": "--gcc=osx", "Android": "--gcc=android", "iOS": "--gcc=ios"}
     gmakeOsToProj = {"Windows": "mingw", "Linux": "linux", "Macos": "osx", "Android": "android", "iOS": "ios"}
@@ -34,6 +37,16 @@ class bimgConan(ConanFile):
     buildTypeToMakeConfig = {"Debug": "config=debug", "Release": "config=release"}
     archToMakeConfigSuffix = {"x86": "32", "x86_64": "64"}
     osToUseMakeConfigSuffix = {"Windows": True, "Linux": True, "Macos": False, "Android": False, "iOS": False}
+
+    def package_id(self):
+        if is_msvc(self):
+            del self.info.settings.compiler.cppstd
+
+    def validate(self):
+        if self.settings.compiler.get_safe("cppstd"):
+            check_min_cppstd(self, 14)
+        if Version(self.version) < "1.3.30" and self.settings.os in ["Linux", "FreeBSD"] and self.settings.arch == "x86_64" and self.settings_build.arch == "x86":
+            raise ConanInvalidConfiguration("This version of the package cannot be cross-built to Linux x86 due to old astc breaking that.")
 
     def configure(self):
         if self.settings.os == "Windows":
@@ -71,7 +84,7 @@ class bimgConan(ConanFile):
     def build(self):
         # Map conan compilers to genie input
         genie = os.path.sep.join(["..", self.bxFolder, self.toolsFolder, "genie"])
-        if self.settings.compiler == "Visual Studio":
+        if is_msvc(self):
             # Use genie directly, then msbuild on specific projects based on requirements
             genieGen = f"vs{self.vsVerToGenie[str(self.settings.compiler.version)]}"
             self.output.highlight(genieGen)
@@ -129,5 +142,14 @@ class bimgConan(ConanFile):
 
     def package_info(self):
         self.cpp_info.includedirs = ["include"]
-        self.cpp_info.libs = ["bimg_decode", "bimg_encode", "bimg"] # encode and decode depend on bimg, so they have to go first
+        self.cpp_info.libs = ["bimg_decode", "bimg_encode", "bimg"]
 
+        self.cpp_info.set_property("cmake_file_name", "bimg")
+        self.cpp_info.set_property("cmake_target_name", "bimg::bimg")
+        self.cpp_info.set_property("pkg_config_name", "bimg")
+
+        #  TODO: to remove in conan v2 once cmake_find_package_* generators removed
+        self.cpp_info.filenames["cmake_find_package"] = "bimg"
+        self.cpp_info.filenames["cmake_find_package_multi"] = "bimg"
+        self.cpp_info.names["cmake_find_package"] = "bimg"
+        self.cpp_info.names["cmake_find_package_multi"] = "bimg"
